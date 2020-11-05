@@ -49,6 +49,7 @@ import jax.numpy as jnp
 from jax.config import config
 
 import tensorflow as tf
+import wandb
 
 import input_pipeline
 import pixelcnn
@@ -103,6 +104,14 @@ flags.DEFINE_float(
     help=('Exponential decay rate of the sum of previous model iterates '
           'during Polyak averaging.'))
 
+flags.DEFINE_string(
+    'optimizer', default='Adam', help=('Adam|Ladam.'))
+
+flags.DEFINE_float(
+    'one_minus_beta1', default=.05, help=('1-beta1 for optimizer.'))
+
+flags.DEFINE_float(
+    'one_minus_beta2', default=.0005, help=('1-beta2 for optimizer.'))
 
 def get_summary_writers():
   current_time = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -220,10 +229,10 @@ def train():
       'params': init_rng,
       'dropout': dropout_rng
   }, init_batch)['params']
-  optimizer_def = optim.Adam(beta1=0.95, beta2=0.9995)
+  optimizer_def = getattr(optim, FLAGS.optimizer)(beta1=FLAGS.beta1, beta2=FLAGS.beta2)
   optimizer = optimizer_def.create(initial_variables)
 
-  optimizer, ema = restore_checkpoint(optimizer, initial_variables)
+  # optimizer, ema = restore_checkpoint(optimizer, initial_variables)
   ema = initial_variables
   step_offset = int(optimizer.state.step)
 
@@ -285,9 +294,16 @@ def train():
       eval_summary_writer.scalar('loss', eval_summary['loss'], step)
       train_summary_writer.flush()
       eval_summary_writer.flush()
+      if jnp.isnan(eval_summary['loss']):
+        print('Nan detected, terminating...')
+        return
 
-    if (step + 1) % steps_per_checkpoint == 0 or step + 1 == num_steps:
-      save_checkpoint(optimizer, ema, step)
+      if eval_summary['loss'] > 10000:
+        print('Large loss detected, terminating...')
+        return
+
+    #if (step + 1) % steps_per_checkpoint == 0 or step + 1 == num_steps:
+    #  save_checkpoint(optimizer, ema, step)
 
 
 def main(argv):
@@ -297,7 +313,25 @@ def main(argv):
   # Make sure tf does not allocate gpu memory.
   tf.config.experimental.set_visible_devices([], 'GPU')
 
-  train()
+  global FLAGS
+  class DotDict(dict):
+      __setattr__ = dict.__setitem__
+      __getattr__ = dict.__getitem__
+  FLAGS = DotDict([(d.name, d.value) for d in list(FLAGS.flags_by_module_dict().values())[-1]])
+  FLAGS.beta1 = 1 - FLAGS.one_minus_beta1
+  FLAGS.beta2 = 1 - FLAGS.one_minus_beta2
+  def effective_sample_size(beta): return (beta + 1) / (1 - beta)
+  FLAGS.effective_sample_size1 = effective_sample_size(FLAGS.beta1)
+  FLAGS.effective_sample_size2 = effective_sample_size(FLAGS.beta2)
+  with wandb.init(config=FLAGS, sync_tensorboard=True):
+    FLAGS = wandb.config
+    try:
+      train()
+    except Exception as e:
+      import traceback
+      wandb.log(dict(exception=''.join(traceback.format_exc())))
+      wandb.log(dict(exception_message=str(e)))
+      raise
 
 
 if __name__ == '__main__':
