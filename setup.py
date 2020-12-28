@@ -30,6 +30,8 @@ install_requires = [
     "matplotlib",  # only needed for tensorboard export
     "dataclasses;python_version<'3.7'", # will only install on py3.6
     "msgpack",
+    "wandb",
+    "tensorflow_datasets"
 ]
 
 tests_require = [
