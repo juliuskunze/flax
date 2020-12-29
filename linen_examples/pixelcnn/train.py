@@ -229,7 +229,10 @@ def train():
       'params': init_rng,
       'dropout': dropout_rng
   }, init_batch)['params']
-  optimizer_def = getattr(optim, FLAGS.optimizer)(beta1=FLAGS.beta1, beta2=FLAGS.beta2)
+  optimizer_params = dict(beta1=FLAGS.beta1, beta2=FLAGS.beta2)
+  if FLAGS.eps is not None:
+    optimizer_params['eps'] = FLAGS.eps
+  optimizer_def = getattr(optim, FLAGS.optimizer)(optimizer_params)
   optimizer = optimizer_def.create(initial_variables)
 
   # optimizer, ema = restore_checkpoint(optimizer, initial_variables)
