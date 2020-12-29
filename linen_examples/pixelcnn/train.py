@@ -114,7 +114,7 @@ flags.DEFINE_float(
     'one_minus_beta2', default=.0005, help=('1-beta2 for optimizer.'))
 
 flags.DEFINE_float(
-    'eps', default=None, type=float, help=('epsilon for optimizer.'))
+    'eps', default=None, help=('epsilon for optimizer.'))
 
 def get_summary_writers():
   current_time = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
