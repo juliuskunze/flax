@@ -11,10 +11,12 @@ parameters:
   batch_size:
     value: 256
   learning_rate:
-    values: [0.001, 0.0005, 0.0002, 0.0001]
+    values: [0.001]
   one_minus_beta2:
-    values: [0.1, 0.05, 0.01, 0.005, 0.001, 0.0005, 0.0001]
+    values: [0.1, 0.01, 0.001]
+  eps:
+    values: [1., 0.1, 0.01, 0.001, 1.e-4, 1.e-5, 1.e-6, 1.e-7, 1.e-8, 1.e-9, 1.e-10, 1.e-11, 1.e-12, 1.e-13, 1.e-14]
   optimizer:
     values: ["AdaBelief"]
   rng:
-    values: [7, 8, 9]
+    values: [10, 11, 12]

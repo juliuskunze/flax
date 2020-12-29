@@ -113,6 +113,9 @@ flags.DEFINE_float(
 flags.DEFINE_float(
     'one_minus_beta2', default=.0005, help=('1-beta2 for optimizer.'))
 
+flags.DEFINE_float(
+    'eps', default=None, type=float, help=('epsilon for optimizer.'))
+
 def get_summary_writers():
   current_time = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
   log_dir = FLAGS.model_dir + '/log/' + current_time
@@ -229,7 +232,10 @@ def train():
       'params': init_rng,
       'dropout': dropout_rng
   }, init_batch)['params']
-  optimizer_def = getattr(optim, FLAGS.optimizer)(beta1=FLAGS.beta1, beta2=FLAGS.beta2)
+  optimizer_params = dict(beta1=FLAGS.beta1, beta2=FLAGS.beta2)
+  if FLAGS.eps is not None:
+    optimizer_params['eps'] = FLAGS.eps
+  optimizer_def = getattr(optim, FLAGS.optimizer)(optimizer_params)
   optimizer = optimizer_def.create(initial_variables)
 
   # optimizer, ema = restore_checkpoint(optimizer, initial_variables)
