@@ -1,0 +1,24 @@
+command:
+  - ${env}
+  - python3
+  - train.py
+  - ${args}
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  batch_size:
+    value: 256
+  learning_rate:
+    values: [0.001]
+  one_minus_beta2:
+    values: [0.001]
+  lr_warmup:
+    values: [0, 100, 1000, 10000]
+  lr_warmup_type:
+    values: ["linear"]
+  optimizer:
+    values: ["Adam", "AdaBelief"]
+  rng:
+    values: [10, 11, 12]

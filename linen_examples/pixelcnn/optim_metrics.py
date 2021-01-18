@@ -45,5 +45,5 @@ def main(c):
 
 
 if __name__ == '__main__':
-  main(DotDict(learning_rate=.001, one_minus_beta1=.1, one_minus_beta2=.1, outlier=1e10, experiment='one_outlier',
-               outlier_step=2000, steps=25000, optimizer='Ladam'))
+  main(DotDict(learning_rate=.001, one_minus_beta1=.1, one_minus_beta2=.01, outlier=100000, experiment='one_outlier',
+               outlier_step=2000, steps=25000, optimizer='Adam'))

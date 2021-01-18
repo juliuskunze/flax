@@ -116,6 +116,12 @@ flags.DEFINE_float(
 flags.DEFINE_float(
     'eps', default=None, help=('epsilon for optimizer.'))
 
+flags.DEFINE_float(
+    'lr_warmup', default=0, help=('number of steps for of statstics where learning rate is 0.'))
+
+flags.DEFINE_string(
+    'lr_linear_warmup', default='zero', help=('zero|linear learning rate warmup'))
+
 def get_summary_writers():
   current_time = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
   log_dir = FLAGS.model_dir + '/log/' + current_time
@@ -245,7 +251,9 @@ def train():
   optimizer, ema = jax_utils.replicate((optimizer, ema))
 
   # Learning rate schedule
-  learning_rate_fn = lambda step: FLAGS.learning_rate * FLAGS.lr_decay ** step
+  learning_rate_fn = lambda step: (jnp.greater_equal(step, FLAGS.lr_warmup)
+                                   if FLAGS.lr_warmup_type == 'zero' else
+                                   jnp.min(step / FLAGS.lr_warmup, 1)) * FLAGS.learning_rate * FLAGS.lr_decay ** step
 
   # pmap the train and eval functions
   p_train_step = jax.pmap(
