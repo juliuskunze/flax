@@ -53,6 +53,7 @@ import wandb
 
 import input_pipeline
 import pixelcnn
+from introspection import apply_gradient_introspected, log
 
 config.enable_omnistaging()
 
@@ -120,7 +121,7 @@ flags.DEFINE_float(
     'lr_warmup', default=0, help=('number of steps for of statstics where learning rate is 0.'))
 
 flags.DEFINE_string(
-    'lr_linear_warmup', default='zero', help=('zero|linear learning rate warmup'))
+    'lr_warmup_type', default='zero', help=('zero|linear learning rate warmup'))
 
 def get_summary_writers():
   current_time = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -160,15 +161,15 @@ def train_step(learning_rate_fn, optimizer, ema, batch, dropout_rng):
   grad_fn = jax.value_and_grad(loss_fn)
   loss, grad = grad_fn(optimizer.target)
   grad = lax.pmean(grad, 'batch')
-  optimizer = optimizer.apply_gradient(grad, learning_rate=lr)
+  optimizer, metrics, histograms = apply_gradient_introspected(optimizer, grad, learning_rate=lr)
 
   # Compute exponential moving average (aka Polyak decay)
   ema_decay = FLAGS.polyak_decay
   ema = jax.tree_multimap(lambda ema, p: ema * ema_decay + (1 - ema_decay) * p,
                           ema, optimizer.target)
 
-  metrics = {'loss': lax.pmean(loss, 'batch'), 'learning_rate': lr}
-  return optimizer, ema, metrics
+  metrics.update({'loss': lax.pmean(loss, 'batch'), 'learning_rate': lr})
+  return optimizer, ema, metrics, histograms
 
 
 def eval_step(params, batch):
@@ -272,8 +273,9 @@ def train():
     sharded_rngs = common_utils.shard_prng_key(step_rng)
 
     # Train step
-    optimizer, ema, metrics = p_train_step(optimizer, ema, batch, sharded_rngs)
-    train_metrics.append(metrics)
+    optimizer, ema, metrics, histograms = p_train_step(optimizer, ema, batch, sharded_rngs)
+    log(jax.tree_map(lambda x: x.mean(0), metrics), jax.tree_map(lambda x: x.mean(0), histograms))
+    train_metrics.append({'loss': metrics['loss'], 'learning_rate': metrics['learning_rate']})
 
     if (step + 1) % steps_per_epoch == 0:
       epoch = step // steps_per_epoch
@@ -282,7 +284,7 @@ def train():
       # Get training epoch summary for logging
       train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
       # Send stats to Tensorboard
-      for key, vals in train_metrics.items():
+      for key, vals in {train_metrics.items()}:
         for i, val in enumerate(vals):
           train_summary_writer.scalar(key, val, step - len(vals) + i + 1)
       # Reset train metrics
