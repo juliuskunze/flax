@@ -36,7 +36,7 @@ from jax.config import config
 config.enable_omnistaging()
 
 import numpy as np
-
+import wandb
 
 FLAGS = flags.FLAGS
 
@@ -154,6 +154,15 @@ def mask_sequences(sequence_batch, lengths):
       lengths[:, np.newaxis] > np.arange(sequence_batch.shape[1]))
 
 
+from jax import custom_jvp, jvp, partial
+
+@custom_jvp
+def hard_sigmoid(x):
+      return jnp.greater_equal(x, 0.).astype(jnp.float32)
+hard_sigmoid.defjvp(partial(jax.jvp, nn.sigmoid))
+
+Cell = nn.GRUCell
+make_cell = partial(Cell, gate_fn=hard_sigmoid)
 class EncoderLSTM(nn.Module):
   @functools.partial(
       nn.transforms.scan,
@@ -161,12 +170,12 @@ class EncoderLSTM(nn.Module):
       split_rngs={'params': False})
   @nn.compact
   def __call__(self, carry, x):
-    return nn.LSTMCell()(carry, x)
+    return make_cell()(carry, x)
 
   @staticmethod
   def initialize_carry(hidden_size):
     # use dummy key since default state init fn is just zeros.
-    return nn.LSTMCell.initialize_carry(jax.random.PRNGKey(0), (), hidden_size)
+    return Cell.initialize_carry(jax.random.PRNGKey(0), (), hidden_size)
 
 
 class DecoderLSTM(nn.Module):
@@ -182,7 +191,7 @@ class DecoderLSTM(nn.Module):
     carry_rng, categorical_rng = jax.random.split(rng, 2)
     if not self.teacher_force:
       x = last_prediction
-    lstm_state, y = nn.LSTMCell()(lstm_state, x)
+    lstm_state, y = make_cell()(lstm_state, x)
     logits = nn.Dense(features=CTABLE.vocab_size)(y)
     predicted_token = jax.random.categorical(categorical_rng, logits)
     prediction = jnp.array(
@@ -368,6 +377,7 @@ def train_model():
     optimizer, metrics = train_step(optimizer, batch, masks, lstm_key)
     if step % FLAGS.decode_frequency == 0:
       key, lstm_key = jax.random.split(key)
+      wandb.log(dict(loss=np.array(metrics['loss']), accuracy=np.array(metrics['accuracy'] * 100)))
       logging.info('train step: %d, loss: %.4f, accuracy: %.2f', step,
                    metrics['loss'], metrics['accuracy'] * 100)
       batch, masks = get_batch(5)
@@ -377,8 +387,9 @@ def train_model():
 
 
 def main(_):
-  _ = train_model()
+  with wandb.init():
+    _ = train_model()
 
 
 if __name__ == '__main__':
-  app.run(main)
+ app.run(main)
