@@ -64,6 +64,10 @@ flags.DEFINE_integer(
     default=3,
     help=('Maximum length of a single input digit.'))
 
+flags.DEFINE_string('gate_fn', default='hard_sigmoid', help='sigmoid|hard_sigmoid')
+flags.DEFINE_string('cell', default='GRU', help='GRU|LSTM')
+flags.DEFINE_bool('test_teacher_force', default=False, help='teacher force for test stats')
+
 PRNGKey = Any
 Shape = Tuple[int]
 Dtype = Any
@@ -158,11 +162,15 @@ from jax import custom_jvp, jvp, partial
 
 @custom_jvp
 def hard_sigmoid(x):
-      return jnp.greater_equal(x, 0.).astype(jnp.float32)
+  return jnp.where(jnp.greater_equal(x, 0.), 1., 0.)
 hard_sigmoid.defjvp(partial(jax.jvp, nn.sigmoid))
 
-Cell = nn.GRUCell
-make_cell = partial(Cell, gate_fn=hard_sigmoid)
+def CellType():
+  return nn.GRUCell if FLAGS.cell == 'GRU' else nn.LSTMCell
+
+def make_cell():
+  return CellType()(gate_fn=hard_sigmoid if FLAGS.gate_fn == 'hard_sigmoid' else sigmoid)
+
 class EncoderLSTM(nn.Module):
   @functools.partial(
       nn.transforms.scan,
@@ -175,7 +183,7 @@ class EncoderLSTM(nn.Module):
   @staticmethod
   def initialize_carry(hidden_size):
     # use dummy key since default state init fn is just zeros.
-    return Cell.initialize_carry(jax.random.PRNGKey(0), (), hidden_size)
+    return CellType().initialize_carry(jax.random.PRNGKey(0), (), hidden_size)
 
 
 class DecoderLSTM(nn.Module):
@@ -357,13 +365,17 @@ def log_decode(question, inferred, golden):
 
 def decode_batch(params, batch, masks, key):
   """Decode and log results for a batch."""
-  _, predictions = apply_model(batch, *masks, params, key, teacher_force=False)
-
+  _, predictions = apply_model(batch, *masks, params, key, teacher_force=FLAGS.test_teacher_force)
+  _, out_masks = masks
+  metrics = compute_metrics(predictions, batch['answer'][:, 1:], out_masks-1)
+  metrics = dict(test_loss=np.array(metrics['loss']), test_accuracy=np.array(metrics['accuracy'] * 100))
+  
   questions = decode_onehot(batch['query'])
   infers = decode_onehot(predictions)
   goldens = decode_onehot(batch['answer'])
   for question, inferred, golden in zip(questions, infers, goldens):
     log_decode(question, inferred, golden[1:])  # Remove '=' prefix.
+  return metrics
 
 
 def train_model():
@@ -377,17 +389,23 @@ def train_model():
     optimizer, metrics = train_step(optimizer, batch, masks, lstm_key)
     if step % FLAGS.decode_frequency == 0:
       key, lstm_key = jax.random.split(key)
-      wandb.log(dict(loss=np.array(metrics['loss']), accuracy=np.array(metrics['accuracy'] * 100)))
+      wandb.log({
+        **dict(loss=np.array(metrics['loss']), accuracy=np.array(metrics['accuracy'] * 100)),
+        **decode_batch(optimizer.target, batch, masks, lstm_key)})
       logging.info('train step: %d, loss: %.4f, accuracy: %.2f', step,
                    metrics['loss'], metrics['accuracy'] * 100)
-      batch, masks = get_batch(5)
-      decode_batch(optimizer.target, batch, masks, lstm_key)
 
   return optimizer.target
 
 
 def main(_):
-  with wandb.init():
+  global FLAGS
+  class DotDict(dict):
+    __setattr__ = dict.__setitem__
+    __getattr__ = dict.__getitem__
+  FLAGS = DotDict([(d.name, d.value) for d in list(FLAGS.flags_by_module_dict().values())[-1]])
+  with wandb.init(config=FLAGS):
+    FLAGS = wandb.config
     _ = train_model()
 
 
