@@ -29,5 +29,7 @@ from jax.nn.initializers import uniform
 from jax.nn.initializers import variance_scaling
 from jax.nn.initializers import xavier_normal
 from jax.nn.initializers import xavier_uniform
+from jax.nn.initializers import glorot_normal
+from jax.nn.initializers import glorot_uniform
 from jax.nn.initializers import zeros
 # pylint: enable=unused-import
