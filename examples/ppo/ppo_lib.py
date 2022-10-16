@@ -19,6 +19,7 @@ from typing import Any, Callable, Tuple, List
 
 from absl import logging
 import flax
+from examples.optax_edam import edam
 from flax import linen as nn
 from flax.metrics import tensorboard
 from flax.training import checkpoints
@@ -266,7 +267,8 @@ def create_train_state(params, model: nn.Module,
         transition_steps=train_steps)
   else:
     lr = config.learning_rate
-  tx = optax.adam(lr)
+  opt = dict(adam=optax.adam, edam=edam)[config.optimizer]
+  tx = opt(lr)
   state = train_state.TrainState.create(
       apply_fn=model.apply,
       params=params,

@@ -14,7 +14,7 @@
 
 # See issue #620.
 # pytype: disable=wrong-keyword-args
-
+import wandb
 from absl import app
 from absl import flags
 from ml_collections import config_flags
@@ -43,11 +43,12 @@ def main(argv):
   # Make sure tf does not allocate gpu memory.
   tf.config.experimental.set_visible_devices([], 'GPU')
   config = FLAGS.config
-  game = config.game + 'NoFrameskip-v4'
-  num_actions = env_utils.get_num_actions(game)
-  print(f'Playing {game} with {num_actions} actions')
-  model = models.ActorCritic(num_outputs=num_actions)
-  ppo_lib.train(model, config, FLAGS.workdir)
+  with wandb.init(config=dict(config), sync_tensorboard=True):
+    game = config.game + 'NoFrameskip-v4'
+    num_actions = env_utils.get_num_actions(game)
+    print(f'Playing {game} with {num_actions} actions')
+    model = models.ActorCritic(num_outputs=num_actions)
+    ppo_lib.train(model, config, FLAGS.workdir)
 
 if __name__ == '__main__':
-  app.run(main)
+    app.run(main)

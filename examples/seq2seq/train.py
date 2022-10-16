@@ -20,10 +20,13 @@
 import functools
 from typing import Any, Dict, Tuple
 
+import wandb
 from absl import app
 from absl import flags
 from absl import logging
 from clu import metric_writers
+
+from examples import optax_util
 from flax import linen as nn
 from flax.training import train_state
 import jax
@@ -66,6 +69,10 @@ flags.DEFINE_integer(
     default=3,
     help=('Maximum length of a single input digit.'))
 
+flags.DEFINE_string(
+    'optimizer', default='edam',
+    help=('Optimizer.')
+)
 
 def get_model(ctable: CTable, *, teacher_force: bool = False) -> models.Seq2seq:
   return models.Seq2seq(teacher_force=teacher_force,
@@ -89,7 +96,8 @@ def get_train_state(rng: PRNGKey, ctable: CTable) -> train_state.TrainState:
   """Returns a train state."""
   model = get_model(ctable)
   params = get_initial_params(model, rng, ctable)
-  tx = optax.adam(FLAGS.learning_rate)
+  opt = optax_util.optimizer(FLAGS.optimizer)
+  tx = opt(FLAGS.learning_rate)
   state = train_state.TrainState.create(
       apply_fn=model.apply, params=params, tx=tx)
   return state
@@ -189,12 +197,11 @@ def train_and_evaluate(workdir: str) -> train_state.TrainState:
   rng = jax.random.PRNGKey(0)
   state = get_train_state(rng, ctable)
 
-  writer = metric_writers.create_default_writer(workdir)
   for step in range(FLAGS.num_train_steps):
     batch = ctable.get_batch(FLAGS.batch_size)
     state, metrics = train_step(state, batch, rng, ctable.eos_id)
     if step and step % FLAGS.decode_frequency == 0:
-      writer.write_scalars(step, metrics)
+      wandb.log(dict(metrics, **optax_util.stats(state)), step=step)
       batch = ctable.get_batch(5)
       decode_batch(state, batch, rng, ctable)
 
@@ -202,7 +209,8 @@ def train_and_evaluate(workdir: str) -> train_state.TrainState:
 
 
 def main(_):
-  _ = train_and_evaluate(FLAGS.workdir)
+  with wandb.init(config=FLAGS.flag_values_dict()):
+    _ = train_and_evaluate(FLAGS.workdir)
 
 
 if __name__ == '__main__':

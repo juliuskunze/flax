@@ -113,4 +113,6 @@ def get_config():
   # Integer for PRNG random seed.
   config.seed = 0
 
+  config.optimizer = 'adamw'
+
   return config

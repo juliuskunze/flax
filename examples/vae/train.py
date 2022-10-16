@@ -11,9 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from optax._src.transform import bias_correction
 
+import wandb
 from absl import app
 from absl import flags
+
+from examples import optax_util
+from examples.optax_edam import edam
 from flax import linen as nn
 from flax.training import train_state
 import jax.numpy as jnp
@@ -47,6 +52,11 @@ flags.DEFINE_integer(
 flags.DEFINE_integer(
     'latents', default=20,
     help=('Number of latent variables.')
+)
+
+flags.DEFINE_string(
+    'optimizer', default='adam',
+    help=('Optimizer.')
 )
 
 
@@ -180,10 +190,11 @@ def main(argv):
 
   init_data = jnp.ones((FLAGS.batch_size, 784), jnp.float32)
 
+  opt = optax_util.optimizer(FLAGS.optimizer)
   state = train_state.TrainState.create(
       apply_fn=model().apply,
       params=model().init(key, init_data, rng)['params'],
-      tx=optax.adam(FLAGS.learning_rate),
+      tx=opt(FLAGS.learning_rate),
   )
 
   rng, z_key, eval_rng = random.split(rng, 3)
@@ -193,19 +204,22 @@ def main(argv):
 
   for epoch in range(FLAGS.num_epochs):
     for _ in range(steps_per_epoch):
+      if epoch == 0 and (state.step < 10 or state.step % 10 == 0):
+        wandb.log(optax_util.stats(state), step=state.step)
       batch = next(train_ds)
       rng, key = random.split(rng)
       state = train_step(state, batch, key)
-
     metrics, comparison, sample = eval(state.params, test_ds, z, eval_rng)
     vae_utils.save_image(
         comparison, f'results/reconstruction_{epoch}.png', nrow=8)
     vae_utils.save_image(sample, f'results/sample_{epoch}.png', nrow=8)
 
+    wandb.log(dict(metrics, **optax_util.stats(state), epoch=epoch), step=state.step)
     print('eval epoch: {}, loss: {:.4f}, BCE: {:.4f}, KLD: {:.4f}'.format(
         epoch + 1, metrics['loss'], metrics['bce'], metrics['kld']
     ))
 
 
 if __name__ == '__main__':
-  app.run(main)
+  with wandb.init(config=FLAGS.flag_values_dict()):
+    app.run(main)

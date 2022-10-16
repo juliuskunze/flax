@@ -20,8 +20,10 @@ The data is loaded using tensorflow_datasets.
 
 # See issue #620.
 # pytype: disable=wrong-keyword-args
-
+import wandb
 from absl import logging
+
+from examples import optax_util
 from flax import linen as nn
 from flax.metrics import tensorboard
 from flax.training import train_state
@@ -71,7 +73,7 @@ def update_model(state, grads):
   return state.apply_gradients(grads=grads)
 
 
-def train_epoch(state, train_ds, batch_size, rng):
+def train_epoch(state, train_ds, batch_size, rng, epoch):
   """Train for a single epoch."""
   train_ds_size = len(train_ds['image'])
   steps_per_epoch = train_ds_size // batch_size
@@ -88,6 +90,8 @@ def train_epoch(state, train_ds, batch_size, rng):
     batch_labels = train_ds['label'][perm, ...]
     grads, loss, accuracy = apply_model(state, batch_images, batch_labels)
     state = update_model(state, grads)
+    if epoch == 0 and (state.step < 10 or state.step % 10 == 0):
+        wandb.log(dict(loss=loss, accuracy=accuracy, **optax_util.stats(state)), step=state.step)
     epoch_loss.append(loss)
     epoch_accuracy.append(accuracy)
   train_loss = np.mean(epoch_loss)
@@ -110,7 +114,8 @@ def create_train_state(rng, config):
   """Creates initial `TrainState`."""
   cnn = CNN()
   params = cnn.init(rng, jnp.ones([1, 28, 28, 1]))['params']
-  tx = optax.sgd(config.learning_rate, config.momentum)
+  opt = optax_util.optimizer(config.optimizer)
+  tx = opt(config.learning_rate, config.momentum, eps=config.eps)
   return train_state.TrainState.create(
       apply_fn=cnn.apply, params=params, tx=tx)
 
@@ -129,29 +134,26 @@ def train_and_evaluate(config: ml_collections.ConfigDict,
   train_ds, test_ds = get_datasets()
   rng = jax.random.PRNGKey(0)
 
-  summary_writer = tensorboard.SummaryWriter(workdir)
-  summary_writer.hparams(dict(config))
-
   rng, init_rng = jax.random.split(rng)
   state = create_train_state(init_rng, config)
 
-  for epoch in range(1, config.num_epochs + 1):
+  for epoch in range(config.num_epochs):
     rng, input_rng = jax.random.split(rng)
     state, train_loss, train_accuracy = train_epoch(state, train_ds,
                                                     config.batch_size,
-                                                    input_rng)
+                                                    input_rng, epoch)
     _, test_loss, test_accuracy = apply_model(state, test_ds['image'],
                                               test_ds['label'])
 
     logging.info(
         'epoch:% 3d, train_loss: %.4f, train_accuracy: %.2f, test_loss: %.4f, test_accuracy: %.2f'
-        % (epoch, train_loss, train_accuracy * 100, test_loss,
+        % (epoch + 1, train_loss, train_accuracy * 100, test_loss,
            test_accuracy * 100))
 
-    summary_writer.scalar('train_loss', train_loss, epoch)
-    summary_writer.scalar('train_accuracy', train_accuracy, epoch)
-    summary_writer.scalar('test_loss', test_loss, epoch)
-    summary_writer.scalar('test_accuracy', test_accuracy, epoch)
-
-  summary_writer.flush()
+    wandb.log(dict(epoch=epoch,
+                   train_loss=train_loss,
+                   train_accuracy=train_accuracy,
+                   test_loss=test_loss,
+                   test_accuracy=test_accuracy,
+                   **optax_util.stats(state, config.momentum)), step=state.step)
   return state

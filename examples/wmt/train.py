@@ -24,9 +24,12 @@ import collections
 import functools
 import os
 
+import wandb
 from absl import logging
 from clu import metric_writers
 from clu import periodic_actions
+
+from examples import optax_util
 from flax import jax_utils
 from flax import linen as nn
 from flax.training import checkpoints
@@ -497,7 +500,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str):
   state = TrainState.create(
       apply_fn=m.apply,
       params=initial_variables["params"],
-      tx=optax.adamw(
+      tx=optax_util.optimizer(config.optimizer)(
           learning_rate=learning_rate_fn,
           b1=0.9,
           b2=0.98,
@@ -515,11 +518,6 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str):
     state = checkpoints.restore_checkpoint(workdir, state)
     # Grab last step.
     start_step = int(state.step)
-
-  writer = metric_writers.create_default_writer(
-      workdir, just_logging=jax.process_index() > 0)
-  if start_step == 0:
-    writer.write_hparams(dict(config))
 
   # Replicate state.
   state = jax_utils.replicate(state)
@@ -559,69 +557,61 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str):
 
   logging.info("Starting training loop.")
   hooks = []
-  report_progress = periodic_actions.ReportProgress(
-      num_train_steps=config.num_train_steps, writer=writer)
-  if jax.process_index() == 0:
-    hooks += [
-        report_progress,
-        periodic_actions.Profile(logdir=workdir, num_profile_steps=5)
-    ]
   train_metrics = []
-  with metric_writers.ensure_flushes(writer):
-    for step in range(start_step, config.num_train_steps):
-      is_last_step = step == config.num_train_steps - 1
+  for step in range(start_step, config.num_train_steps):
+    is_last_step = step == config.num_train_steps - 1
 
-      # Shard data to devices and do a training step.
-      with jax.profiler.StepTraceAnnotation("train", step_num=step):
-        batch = common_utils.shard(jax.tree_util.tree_map(np.asarray, next(train_iter)))
-        state, metrics = p_train_step(
-            state, batch, dropout_rng=dropout_rngs)
-        train_metrics.append(metrics)
+    # Shard data to devices and do a training step.
+    with jax.profiler.StepTraceAnnotation("train", step_num=step):
+      batch = common_utils.shard(jax.tree_util.tree_map(np.asarray, next(train_iter)))
+      state, metrics = p_train_step(
+          state, batch, dropout_rng=dropout_rngs)
+      train_metrics.append(metrics)
 
-      # Quick indication that training is happening.
-      logging.log_first_n(logging.INFO, "Finished training step %d.", 5, step)
-      for h in hooks:
-        h(step)
+    if step < 10 or step % 100 == 0:
+      wandb.log(optax_util.stats(jax_utils.unreplicate(state)), step=step)
 
-      # Periodic metric handling.
-      if step % config.eval_every_steps == 0 or is_last_step:
-        with report_progress.timed("training_metrics"):
-          logging.info("Gathering training metrics.")
-          train_metrics = common_utils.get_metrics(train_metrics)
-          lr = train_metrics.pop("learning_rate").mean()
-          metrics_sums = jax.tree_util.tree_map(jnp.sum, train_metrics)
-          denominator = metrics_sums.pop("denominator")
-          summary = jax.tree_util.tree_map(lambda x: x / denominator, metrics_sums)  # pylint: disable=cell-var-from-loop
-          summary["learning_rate"] = lr
-          summary = {"train_" + k: v for k, v in summary.items()}
-          writer.write_scalars(step, summary)
-          train_metrics = []
+    # Quick indication that training is happening.
+    logging.log_first_n(logging.INFO, "Finished training step %d.", 5, step)
+    for h in hooks:
+      h(step)
 
-        with report_progress.timed("eval"):
-          eval_results = evaluate(
-              p_eval_step=p_eval_step,
-              params=state.params,
-              eval_ds=eval_ds,
-              num_eval_steps=config.num_eval_steps)
-          writer.write_scalars(
-              step, {"eval_" + k: v for k, v in eval_results.items()})
+    # Periodic metric handling.
+    if step % config.eval_every_steps == 0 or is_last_step:
+      #with report_progress.timed("training_metrics"):
+      logging.info("Gathering training metrics.")
+      train_metrics = common_utils.get_metrics(train_metrics)
+      lr = train_metrics.pop("learning_rate").mean()
+      metrics_sums = jax.tree_util.tree_map(jnp.sum, train_metrics)
+      denominator = metrics_sums.pop("denominator")
+      summary = jax.tree_util.tree_map(lambda x: x / denominator, metrics_sums)  # pylint: disable=cell-var-from-loop
+      summary["learning_rate"] = lr
+      summary = {"train_" + k: v for k, v in summary.items()}
+      wandb.log(summary, step=step)
+      train_metrics = []
 
-        with report_progress.timed("translate_and_bleu"):
-          exemplars, bleu_score = translate_and_calculate_bleu(
-              p_pred_step=p_pred_step,
-              p_init_cache=p_init_cache,
-              params=state.params,
-              predict_ds=predict_ds,
-              decode_tokens=decode_tokens,
-              max_predict_length=config.max_predict_length)
-          writer.write_scalars(step, {"bleu": bleu_score})
-          writer.write_texts(step, {"samples": exemplars})
 
-      # Save a checkpoint on one host after every checkpoint_freq steps.
-      save_checkpoint = (step % config.checkpoint_every_steps == 0 or
-                         is_last_step)
-      if (config.save_checkpoints and save_checkpoint and
-          jax.process_index() == 0):
-        with report_progress.timed("checkpoint"):
-          checkpoints.save_checkpoint(workdir, jax_utils.unreplicate(state),
-                                      step)
+      eval_results = evaluate(
+          p_eval_step=p_eval_step,
+          params=state.params,
+          eval_ds=eval_ds,
+          num_eval_steps=config.num_eval_steps)
+      wandb.log({"eval_" + k: v for k, v in eval_results.items()}, step=step)
+
+      exemplars, bleu_score = translate_and_calculate_bleu(
+          p_pred_step=p_pred_step,
+          p_init_cache=p_init_cache,
+          params=state.params,
+          predict_ds=predict_ds,
+          decode_tokens=decode_tokens,
+          max_predict_length=config.max_predict_length)
+      wandb.log({"bleu": bleu_score}, step=step)
+      wandb.log({"samples": wandb.Html(exemplars)}, step=step)
+
+    # Save a checkpoint on one host after every checkpoint_freq steps.
+    save_checkpoint = (step % config.checkpoint_every_steps == 0 or
+                       is_last_step)
+    if (config.save_checkpoints and save_checkpoint and
+        jax.process_index() == 0):
+      checkpoints.save_checkpoint(workdir, jax_utils.unreplicate(state),
+                                  step)

@@ -51,4 +51,6 @@ def get_config():
   # Linearly decay learning rate and clipping parameter to zero during
   # the training.
   config.decaying_lr_and_clip_param = True
+
+  config.optimizer = 'adam'
   return config
