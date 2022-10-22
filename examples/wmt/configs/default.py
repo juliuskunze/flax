@@ -115,4 +115,6 @@ def get_config():
 
   config.optimizer = 'adamw'
 
+  config.eps = 1e-9
+
   return config
