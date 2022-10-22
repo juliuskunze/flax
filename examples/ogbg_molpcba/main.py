@@ -17,7 +17,7 @@
 This file is intentionally kept short. The majority for logic is in libraries
 that can be easily tested and imported in Colab.
 """
-
+import wandb
 from absl import app
 from absl import flags
 from absl import logging
@@ -58,7 +58,8 @@ def main(argv):
   platform.work_unit().create_artifact(platform.ArtifactType.DIRECTORY,
                                        FLAGS.workdir, 'workdir')
 
-  train.train_and_evaluate(FLAGS.config, FLAGS.workdir)
+  with wandb.init(config=dict(FLAGS.config)):
+    train.train_and_evaluate(FLAGS.config, FLAGS.workdir)
 
 
 if __name__ == '__main__':

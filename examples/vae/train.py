@@ -11,21 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from optax._src.transform import bias_correction
 
 import wandb
 from absl import app
 from absl import flags
 
 from examples import optax_util
-from examples.optax_edam import edam
 from flax import linen as nn
 from flax.training import train_state
 import jax.numpy as jnp
 import jax
 from jax import random
 import numpy as np
-import optax
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -55,8 +52,13 @@ flags.DEFINE_integer(
 )
 
 flags.DEFINE_string(
-    'optimizer', default='adam',
+    'optimizer', default='edam',
     help=('Optimizer.')
+)
+
+flags.DEFINE_float(
+    'eps', default=1e-3,
+    help=('Epsilon.')
 )
 
 
@@ -194,7 +196,7 @@ def main(argv):
   state = train_state.TrainState.create(
       apply_fn=model().apply,
       params=model().init(key, init_data, rng)['params'],
-      tx=opt(FLAGS.learning_rate),
+      tx=opt(FLAGS.learning_rate, eps=FLAGS.eps),
   )
 
   rng, z_key, eval_rng = random.split(rng, 3)

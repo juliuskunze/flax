@@ -5,7 +5,7 @@ import wandb
 from jax import jit, numpy as jnp, tree_util
 from optax._src.transform import bias_correction
 
-from examples.optax_edam import edam, edamw
+from examples import optax_edam
 
 
 def _tree_mean(tree):
@@ -13,8 +13,10 @@ def _tree_mean(tree):
   count = sum([x.size for x in leaves])
   return jnp.sum(jnp.array([jnp.sum(x) for x in leaves])) / count
 
+
 def _tree_flatten(tree):
   return jnp.concatenate([jnp.reshape(x, (-1,)) for x in tree_util.tree_leaves(tree)])
+
 
 @partial(jit, static_argnames='momentum')
 def _stats(state, momentum):
@@ -26,18 +28,18 @@ def _stats(state, momentum):
     lambda x: jnp.abs(bias_correction(x, momentum, opt_state.count + 1)),
     opt_state.mu))
 
-  return dict(grad_abs_log_hist=jnp.histogram(jnp.nan_to_num(jnp.log(grad_abs), neginf=-88),  bins=128),
+  return dict(grad_abs_log_hist=jnp.histogram(jnp.nan_to_num(jnp.log(grad_abs), neginf=-88), bins=128),
               grad_abs_mean=jnp.mean(grad_abs),
               grad_abs_var=jnp.var(grad_abs))
+
 
 def stats(state, momentum=.9):
   return {k: wandb.Histogram(np_histogram=v) if k.endswith('hist') else v
           for k, v in _stats(state, momentum).items()}
 
-def optimizer(name):
-  if name == 'edam':
-    return edam
-  if name == 'edamw':
-    return edamw
 
-  return getattr(optax, name)
+def optimizer(name):
+  try:
+    return getattr(optax_edam, name)
+  except AttributeError:
+    return getattr(optax, name)

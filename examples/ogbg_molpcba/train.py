@@ -17,6 +17,7 @@
 import os
 from typing import Any, Dict, Iterable, Tuple, Optional
 
+import wandb
 from absl import logging
 from clu import checkpoint
 from clu import metric_writers
@@ -290,10 +291,6 @@ def train_and_evaluate(config: ml_collections.ConfigDict,
   # We only support single-host training.
   assert jax.process_count() == 1
 
-  # Create writer for logs.
-  writer = metric_writers.create_default_writer(workdir)
-  writer.write_hparams(config.to_dict())
-
   # Get datasets, organized by split.
   logging.info('Obtaining datasets.')
   datasets = input_pipeline.get_datasets(
@@ -333,12 +330,6 @@ def train_and_evaluate(config: ml_collections.ConfigDict,
   eval_net = create_model(config, deterministic=True)
   eval_state = state.replace(apply_fn=eval_net.apply)
 
-  # Hooks called periodically during training.
-  report_progress = periodic_actions.ReportProgress(
-      num_train_steps=config.num_train_steps, writer=writer)
-  profiler = periodic_actions.Profile(num_profile_steps=5, logdir=workdir)
-  hooks = [report_progress, profiler]
-
   # Begin training loop.
   logging.info('Starting training.')
   train_metrics = None
@@ -361,14 +352,11 @@ def train_and_evaluate(config: ml_collections.ConfigDict,
 
     # Quick indication that training is happening.
     logging.log_first_n(logging.INFO, 'Finished training step %d.', 10, step)
-    for hook in hooks:
-      hook(step)
 
     # Log, if required.
     is_last_step = (step == config.num_train_steps - 1)
     if step % config.log_every_steps == 0 or is_last_step:
-      writer.write_scalars(step,
-                           add_prefix_to_keys(train_metrics.compute(), 'train'))
+      wandb.log(add_prefix_to_keys(train_metrics.compute(), 'train'), step=step)
       train_metrics = None
 
     # Evaluate on validation and test splits, if required.
@@ -376,15 +364,12 @@ def train_and_evaluate(config: ml_collections.ConfigDict,
       eval_state = eval_state.replace(params=state.params)
 
       splits = ['validation', 'test']
-      with report_progress.timed('eval'):
-        eval_metrics = evaluate_model(eval_state, datasets, splits=splits)
+      eval_metrics = evaluate_model(eval_state, datasets, splits=splits)
       for split in splits:
-        writer.write_scalars(
-            step, add_prefix_to_keys(eval_metrics[split].compute(), split))
+        wandb.log(add_prefix_to_keys(eval_metrics[split].compute(), split), step=step)
 
     # Checkpoint model, if required.
     if step % config.checkpoint_every_steps == 0 or is_last_step:
-      with report_progress.timed('checkpoint'):
-        ckpt.save(state)
+      ckpt.save(state)
 
   return state

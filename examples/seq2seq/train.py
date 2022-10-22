@@ -74,6 +74,11 @@ flags.DEFINE_string(
     help=('Optimizer.')
 )
 
+flags.DEFINE_float(
+    'eps', default=0,
+    help=('Epsilon.')
+)
+
 def get_model(ctable: CTable, *, teacher_force: bool = False) -> models.Seq2seq:
   return models.Seq2seq(teacher_force=teacher_force,
                         hidden_size=FLAGS.hidden_size, eos_id=ctable.eos_id,
@@ -97,7 +102,7 @@ def get_train_state(rng: PRNGKey, ctable: CTable) -> train_state.TrainState:
   model = get_model(ctable)
   params = get_initial_params(model, rng, ctable)
   opt = optax_util.optimizer(FLAGS.optimizer)
-  tx = opt(FLAGS.learning_rate)
+  tx = opt(FLAGS.learning_rate, eps=FLAGS.eps)
   state = train_state.TrainState.create(
       apply_fn=model.apply, params=params, tx=tx)
   return state
