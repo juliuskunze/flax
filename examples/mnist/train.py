@@ -132,7 +132,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict,
     The train state (which includes the `.params`).
   """
   train_ds, test_ds = get_datasets()
-  rng = jax.random.PRNGKey(0)
+  rng = jax.random.PRNGKey(config.seed)
 
   rng, init_rng = jax.random.split(rng)
   state = create_train_state(init_rng, config)

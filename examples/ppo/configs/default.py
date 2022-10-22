@@ -25,7 +25,7 @@ def get_config():
   """
   config = ml_collections.ConfigDict()
   # The Atari game used.
-  config.game = 'Pong'
+  config.game = 'pong'
   # Total number of frames seen during training.
   config.total_frames = 40000000
   # The learning rate for the Adam optimizer.

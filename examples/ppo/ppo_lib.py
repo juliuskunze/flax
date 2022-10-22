@@ -17,8 +17,10 @@
 import functools
 from typing import Any, Callable, Tuple, List
 
+import wandb
 from absl import logging
 import flax
+from examples import optax_util
 from examples.optax_edam import edam
 from flax import linen as nn
 from flax.metrics import tensorboard
@@ -294,8 +296,6 @@ def train(
   game = config.game + 'NoFrameskip-v4'
   simulators = [agent.RemoteSimulator(game)
                 for _ in range(config.num_agents)]
-  summary_writer = tensorboard.SummaryWriter(model_dir)
-  summary_writer.hparams(dict(config))
   loop_steps = config.total_frames // (config.num_agents * config.actor_steps)
   log_frequency = 40
   checkpoint_frequency = 500
@@ -320,7 +320,7 @@ def train(
     if step % log_frequency == 0:
       score = test_episodes.policy_test(1, state.apply_fn, state.params, game)
       frames = step * config.num_agents * config.actor_steps
-      summary_writer.scalar('game_score', score, frames)
+      wandb.log(dict(optax_util.stats(state), game_score=score), step=frames)
       logging.info('Step %s:\nframes seen %s\nscore %s\n\n', step, frames, score)
 
     # Core training code.

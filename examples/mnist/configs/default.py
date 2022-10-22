@@ -25,6 +25,7 @@ def get_config():
   config.momentum = 0.9
   config.batch_size = 128
   config.num_epochs = 10
-  config.optimizer = 'edam'
-  config.eps = 1e-6
+  config.optimizer = 'adam'
+  config.eps = 1e-8
+  config.seed = 1
   return config
