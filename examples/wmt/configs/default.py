@@ -114,7 +114,8 @@ def get_config():
   config.seed = 0
 
   config.optimizer = 'adamw'
-
+  config.b1 = .9
+  config.b2 = .98
   config.eps = 1e-9
 
   return config

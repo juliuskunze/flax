@@ -73,7 +73,8 @@ def update_model(state, grads):
   return state.apply_gradients(grads=grads)
 
 
-def train_epoch(state, train_ds, batch_size, rng, epoch):
+def train_epoch(state, train_ds, config, rng, epoch):
+  batch_size = config.batch_size
   """Train for a single epoch."""
   train_ds_size = len(train_ds['image'])
   steps_per_epoch = train_ds_size // batch_size
@@ -91,7 +92,8 @@ def train_epoch(state, train_ds, batch_size, rng, epoch):
     grads, loss, accuracy = apply_model(state, batch_images, batch_labels)
     state = update_model(state, grads)
     if epoch == 0 and (state.step < 10 or state.step % 10 == 0):
-        wandb.log(dict(loss=loss, accuracy=accuracy, **optax_util.stats(state)), step=state.step)
+        wandb.log(dict(loss=loss, accuracy=accuracy,
+                       **optax_util.stats(state, config.momentum)), step=state.step)
     epoch_loss.append(loss)
     epoch_accuracy.append(accuracy)
   train_loss = np.mean(epoch_loss)
