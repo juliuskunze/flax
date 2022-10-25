@@ -502,9 +502,9 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str):
       params=initial_variables["params"],
       tx=optax_util.optimizer(config.optimizer)(
           learning_rate=learning_rate_fn,
-          b1=0.9,
-          b2=0.98,
-          eps=1e-9,
+          b1=config.b1,
+          b2=config.b2,
+          eps=config.eps,
           weight_decay=config.weight_decay,
       ),
       dynamic_scale=dynamic_scale,
@@ -569,7 +569,8 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str):
       train_metrics.append(metrics)
 
     if step < 10 or step % 100 == 0:
-      wandb.log(optax_util.stats(jax_utils.unreplicate(state)), step=step)
+      wandb.log(optax_util.stats(jax_utils.unreplicate(state),
+                                 config.b1, config.b2), step=step)
 
     # Quick indication that training is happening.
     logging.log_first_n(logging.INFO, "Finished training step %d.", 5, step)

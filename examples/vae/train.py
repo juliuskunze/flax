@@ -52,12 +52,12 @@ flags.DEFINE_integer(
 )
 
 flags.DEFINE_string(
-    'optimizer', default='edam',
+    'optimizer', default='edam2',
     help=('Optimizer.')
 )
 
 flags.DEFINE_float(
-    'eps', default=1e-3,
+    'eps', default=1e-8,
     help=('Epsilon.')
 )
 

@@ -117,7 +117,8 @@ def create_train_state(rng, config):
   cnn = CNN()
   params = cnn.init(rng, jnp.ones([1, 28, 28, 1]))['params']
   opt = optax_util.optimizer(config.optimizer)
-  tx = opt(config.learning_rate, config.momentum, eps=config.eps)
+  tx = opt(config.learning_rate, config.momentum,
+           **(dict() if config.optimizer == 'sgd' else dict(eps=config.eps)))
   return train_state.TrainState.create(
       apply_fn=cnn.apply, params=params, tx=tx)
 
@@ -142,7 +143,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict,
   for epoch in range(config.num_epochs):
     rng, input_rng = jax.random.split(rng)
     state, train_loss, train_accuracy = train_epoch(state, train_ds,
-                                                    config.batch_size,
+                                                    config,
                                                     input_rng, epoch)
     _, test_loss, test_accuracy = apply_model(state, test_ds['image'],
                                               test_ds['label'])

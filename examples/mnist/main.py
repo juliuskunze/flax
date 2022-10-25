@@ -58,7 +58,7 @@ def main(argv):
   platform.work_unit().create_artifact(platform.ArtifactType.DIRECTORY,
                                        FLAGS.workdir, 'workdir')
 
-  with wandb.init(config=FLAGS.config):
+  with wandb.init(config=dict(FLAGS.config)):
     train.train_and_evaluate(FLAGS.config, FLAGS.workdir)
 
 

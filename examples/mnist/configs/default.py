@@ -21,11 +21,12 @@ def get_config():
   """Get the default hyperparameter configuration."""
   config = ml_collections.ConfigDict()
 
-  config.learning_rate = 0.001
+  config.optimizer = 'edam2'
+  config.learning_rate = .001
+  config.eps = 1e-8
+
   config.momentum = 0.9
   config.batch_size = 128
   config.num_epochs = 10
-  config.optimizer = 'adam'
-  config.eps = 1e-8
-  config.seed = 1
+  config.seed = 2
   return config

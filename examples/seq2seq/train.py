@@ -70,7 +70,7 @@ flags.DEFINE_integer(
     help=('Maximum length of a single input digit.'))
 
 flags.DEFINE_string(
-    'optimizer', default='edam',
+    'optimizer', default='edam2',
     help=('Optimizer.')
 )
 
